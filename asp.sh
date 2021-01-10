@@ -30,14 +30,22 @@ help() {
 diskPrettyPrintOpts=' -j ID -p '
 sarDiskOpts=''
 
+# Determine the OS family, if possible
+if [ -r /etc/os-release ]
+    then osFamily=$(sed -nEe 's/^ID_LIKE="?(.*)"?/\1/p' /etc/os-release)
+    else osFamily='Unknown'
+fi
 
 # variables can be set to identify multiple sets of copied sar files
-sarSrcDir='/var/log/sa' # RedHat, CentOS ...
-#sarSrcDir='/var/log/sysstat' # Debian, Ubuntu ...
+case "$osFamily" in
+    'debian') sarSrcDir='/var/log/sysstat';; # Debian, Ubuntu ...
+    'fedora') sarSrcDir='/var/log/sa';; # RedHat, CentOS ...
+    *)        sarSrcDir='/var/log/sa';; # Assume RedHat, CentOS ...
+esac
 
 sarDstDir="sar-csv"
 
-csvConvertCmd=" sed -e 's/;/,/g' "
+csvConvertCmd="sed -e 's/;/,/g'"
 
 
 while getopts s:d:hp arg
@@ -62,10 +70,10 @@ EOF
 #exit
 
 
-mkdir -p $sarDstDir || {
+mkdir -p "$sarDstDir" || {
 
 	echo 
-	echo Failed to create $sarDstDir
+	echo Failed to create "$sarDstDir"
 	echo
 	exit 1
 
@@ -74,7 +82,7 @@ mkdir -p $sarDstDir || {
 
 # sar options
 # -d activity per block device
-  # -j LABEL: use label for device if possible. eg. sentryoraredo01 rather than /dev/dm-3
+# -j LABEL: use label for device if possible. eg. sentryoraredo01 rather than /dev/dm-3
 # -b IO and transfer rates
 # -q load
 # -u cpu
@@ -134,11 +142,11 @@ do
 	#echo "saropt: $saropt"
 	#echo "file: ${sarDestOptions["$saropt"]}"
 
-	CMD="sadf -d -- "$saropt"  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestOptions["$saropt"]} "
-	echo CMD: $CMD
+	CMD="sadf -d -- \"$saropt\"  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestOptions["$saropt"]} "
+	echo CMD: "$CMD"
 
 	#set -o pipefail
-	eval $CMD
+	eval "$CMD"
 	rc=$?
 	#set +o pipefail
 
@@ -149,10 +157,10 @@ do
 	if [[ "$rc" -ne 141 ]]; then
 		echo
 		echo "  !!! This Metric Not Supported !!!"
-		echo '  removing ' ${sarDstDir}/${sarDestOptions["$saropt"]} ' from output'
+		echo '  removing ' "${sarDstDir}"/${sarDestOptions["$saropt"]} ' from output'
 		echo "  CMD: $CMD"
 		echo 
-		rm -f  ${sarDstDir}/${sarDestOptions["$saropt"]}
+		rm -f  "${sarDstDir}"/${sarDestOptions["$saropt"]}
 		unset sarDestOptions["$saropt"]
 	fi
 	#sadf -d -- ${sarDestOptions[$i]}  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestFiles[$i]}
@@ -164,8 +172,9 @@ done
 #: <<'COMMENT'
 
 #for sarFiles in ${sarSrcDirs[$currentEl]}/sa??
+declare -A sarDestFiles
 set +u
-for sarFiles in $(ls -1dtar ${sarSrcDir}/sa??)
+for sarFiles in "${sarSrcDir}"/sa??
 do
 	for sadfFile in $sarFiles
 	do
@@ -175,31 +184,31 @@ do
 		# -t is for local timestamp
 		# -d : database semi-colon delimited output
 
-		echo Processing File: $sadfFile
+		echo Processing File: "$sadfFile"
 
 		for saropt in "${!sarDestOptions[@]}"
 		do
 			CMD="sadf -d -- $saropt $sadfFile | tail -n +2 | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
-			echo CMD: $CMD
-			eval $CMD
-			if [[ $? -ne 0 ]]; then
-				echo "#############################################
+			echo CMD: "$CMD"
+			if eval "$CMD"; then
+				echo "#############################################"
 				echo "## CMD Failed"
 				echo "## $CMD"
-				echo "#############################################
+				echo "#############################################"
 
 			fi
+			sarDestFiles[$i]="${sarDestOptions[$saropt]}"
 			(( i++ ))
 		done
 
 	done
 done
-
+lastSarOptEl=$i
 
 echo
 echo Processing complete 
 echo 
-echo files located in $sarDstDir
+echo files located in "$sarDstDir"
 echo 
 
 
@@ -207,7 +216,7 @@ echo
 i=0
 while [[ $i -lt $lastSarOptEl ]]
 do
-	ls -ld ${sarDstDir}/${sarDestFiles[$i]} 
+	ls -ld "${sarDstDir}"/"${sarDestFiles[$i]}" 
 	(( i++ ))
 done
 
