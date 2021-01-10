@@ -27,6 +27,20 @@ help() {
 	echo
 }
 
+# Check for SAR installation
+sar=$(command -v sar)
+sadf=$(command -v sadf)
+if [[ -z "$sar" || -z "$sadf" ]]
+then
+    if [[ -z "$sar" ]]
+    then echo Unable to find the sar command
+    fi
+    if [[ -z "$sadf" ]]
+    then echo Unable to find the sadf command
+    fi
+    exit 1
+fi    
+
 diskPrettyPrintOpts=' -j ID -p '
 sarDiskOpts=''
 
@@ -135,6 +149,7 @@ sarDestOptions['-w']='sar-context.csv'
 #while [[ $i -lt ${#x[@]} ]]; do echo ${x[$i]}; (( i++ )); done;
 
 # initialize files with header row
+declare -a sarDestFiles
 
 for saropt in "${!sarDestOptions[@]}"
 do
@@ -142,7 +157,7 @@ do
 	#echo "saropt: $saropt"
 	#echo "file: ${sarDestOptions["$saropt"]}"
 
-	CMD="sadf -d -- \"$saropt\"  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestOptions["$saropt"]} "
+	CMD="sadf -d -- $saropt  | head -1 | $csvConvertCmd | sed -nEe 's/^# //' -e 's/,/\",\"/g' -e 's/(.*)/\"\1\"/p' > ${sarDstDir}/${sarDestOptions["$saropt"]} "
 	echo CMD: "$CMD"
 
 	#set -o pipefail
@@ -162,6 +177,8 @@ do
 		echo 
 		rm -f  "${sarDstDir}"/${sarDestOptions["$saropt"]}
 		unset sarDestOptions["$saropt"]
+	else
+		sarDestFiles+=("${sarDestOptions[$saropt]}")
 	fi
 	#sadf -d -- ${sarDestOptions[$i]}  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestFiles[$i]}
 	echo "################"
@@ -172,7 +189,6 @@ done
 #: <<'COMMENT'
 
 #for sarFiles in ${sarSrcDirs[$currentEl]}/sa??
-declare -A sarDestFiles
 set +u
 for sarFiles in "${sarSrcDir}"/sa??
 do
@@ -188,7 +204,7 @@ do
 
 		for saropt in "${!sarDestOptions[@]}"
 		do
-			CMD="sadf -d -- $saropt $sadfFile | tail -n +2 | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
+			CMD="sadf -d -- $saropt $sadfFile | tail -n +3  | sed -Ee '/^# /d' | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
 			echo CMD: "$CMD"
 			if eval "$CMD"; then
 				echo "#############################################"
@@ -197,13 +213,10 @@ do
 				echo "#############################################"
 
 			fi
-			sarDestFiles[$i]="${sarDestOptions[$saropt]}"
-			(( i++ ))
 		done
 
 	done
 done
-lastSarOptEl=$i
 
 echo
 echo Processing complete 
@@ -213,11 +226,9 @@ echo
 
 
 # show the files created
-i=0
-while [[ $i -lt $lastSarOptEl ]]
+for sarDestFile in "${sarDestFiles[@]}"
 do
-	ls -ld "${sarDstDir}"/"${sarDestFiles[$i]}" 
-	(( i++ ))
+	ls -ld "${sarDstDir}"/"$sarDestFile" 
 done
 
 #COMMENT
