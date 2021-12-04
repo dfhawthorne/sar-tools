@@ -29,19 +29,41 @@ help() {
 	echo
 }
 
+# Check for SAR installation
+sar=$(command -v sar)
+sadf=$(command -v sadf)
+if [[ -z "$sar" || -z "$sadf" ]]
+then
+    if [[ -z "$sar" ]]
+    then echo Unable to find the sar command
+    fi
+    if [[ -z "$sadf" ]]
+    then echo Unable to find the sadf command
+    fi
+    exit 1
+fi    
+
 diskPrettyPrintOpts=' -j ID -p '
 sarDiskOpts=''
 getDiskMetrics='Y'
 dryRun='N'
 
+# Determine the OS family, if possible
+if [ -r /etc/os-release ]
+    then osFamily=$(sed -nEe 's/^ID_LIKE="?(.*)"?/\1/p' /etc/os-release)
+    else osFamily='Unknown'
+fi
 
 # variables can be set to identify multiple sets of copied sar files
-sarSrcDir='/var/log/sa' # RedHat, CentOS ...
-#sarSrcDir='/var/log/sysstat' # Debian, Ubuntu ...
+case "$osFamily" in
+    'debian') sarSrcDir='/var/log/sysstat';; # Debian, Ubuntu ...
+    'fedora') sarSrcDir='/var/log/sa';; # RedHat, CentOS ...
+    *)        sarSrcDir='/var/log/sa';; # Assume RedHat, CentOS ...
+esac
 
 sarDstDir="sar-csv"
 
-csvConvertCmd=" sed -e 's/;/,/g' "
+csvConvertCmd="sed -e 's/;/,/g'"
 
 
 while getopts s:d:hpny arg
@@ -68,10 +90,10 @@ EOF
 #exit
 
 
-mkdir -p $sarDstDir || {
+mkdir -p "$sarDstDir" || {
 
 	echo 
-	echo Failed to create $sarDstDir
+	echo Failed to create "$sarDstDir"
 	echo
 	exit 1
 
@@ -80,7 +102,7 @@ mkdir -p $sarDstDir || {
 
 # sar options
 # -d activity per block device
-  # -j LABEL: use label for device if possible. eg. sentryoraredo01 rather than /dev/dm-3
+# -j LABEL: use label for device if possible. eg. sentryoraredo01 rather than /dev/dm-3
 # -b IO and transfer rates
 # -q load
 # -u cpu
@@ -136,6 +158,7 @@ sarDestOptions['-w']='sar-context.csv'
 #while [[ $i -lt ${#x[@]} ]]; do echo ${x[$i]}; (( i++ )); done;
 
 # initialize files with header row
+declare -a sarDestFiles
 
 for saropt in "${!sarDestOptions[@]}"
 do
@@ -143,15 +166,15 @@ do
 	#echo "saropt: $saropt"
 	#echo "file: ${sarDestOptions["$saropt"]}"
 
-	CMD="sadf -d -- "$saropt"  | head -1 | $csvConvertCmd "
+	CMD="sadf -d -- $saropt  | head -1 | $csvConvertCmd | sed -nEe 's/^# //' -e 's/,/\",\"/g' -e 's/(.*)/\"\1\"/p' "
 
 	if [ "$dryRun" == 'N' ]; then
 		CMD="$CMD  > ${sarDstDir}/${sarDestOptions["$saropt"]} "
 	fi
-	echo CMD: $CMD
+	echo CMD: "$CMD"
 
 	#set -o pipefail
-	eval $CMD
+	eval "$CMD"
 	rc=$?
 	#set +o pipefail
 
@@ -163,11 +186,13 @@ do
 	if [ "$rc" -ne 141 -a "$rc" -ne 0 ]; then
 		echo
 		echo "  !!! This Metric Not Supported !!!"
-		echo '  removing ' ${sarDstDir}/${sarDestOptions["$saropt"]} ' from output'
+		echo '  removing ' "${sarDstDir}"/${sarDestOptions["$saropt"]} ' from output'
 		echo "  CMD: $CMD"
 		echo 
-		rm -f  ${sarDstDir}/${sarDestOptions["$saropt"]}
+		rm -f  "${sarDstDir}"/${sarDestOptions["$saropt"]}
 		unset sarDestOptions["$saropt"]
+	else
+		sarDestFiles+=("${sarDestOptions[$saropt]}")
 	fi
 	#sadf -d -- ${sarDestOptions[$i]}  | head -1 | $csvConvertCmd > ${sarDstDir}/${sarDestFiles[$i]}
 	echo "################"
@@ -179,7 +204,7 @@ done
 
 #for sarFiles in ${sarSrcDirs[$currentEl]}/sa??
 set +u
-for sarFiles in $(ls -1dtar ${sarSrcDir}/sa??)
+for sarFiles in "${sarSrcDir}"/sa??
 do
 	for sadfFile in $sarFiles
 	do
@@ -189,12 +214,12 @@ do
 		# -t is for local timestamp
 		# -d : database semi-colon delimited output
 
-		echo Processing File: $sadfFile
+		echo Processing File: "$sadfFile"
 
 		for saropt in "${!sarDestOptions[@]}"
 		do
-			CMD="sadf -d -- $saropt $sadfFile | tail -n +2 | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
-			echo CMD: $CMD
+			CMD="sadf -d -- $saropt $sadfFile | tail -n +3  | sed -Ee '/^# /d' | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
+			echo CMD: "$CMD"
 
 			if [ "$dryRun" == 'N' ]; then
 				eval $CMD
@@ -206,27 +231,22 @@ do
 	
 				fi
 			fi
-
-			(( i++ ))
 		done
 
 	done
 done
 
-
 echo
 echo Processing complete 
 echo 
-echo files located in $sarDstDir
+echo files located in "$sarDstDir"
 echo 
 
 
 # show the files created
-i=0
-while [[ $i -lt $lastSarOptEl ]]
+for sarDestFile in "${sarDestFiles[@]}"
 do
-	ls -ld ${sarDstDir}/${sarDestFiles[$i]} 
-	(( i++ ))
+	ls -ld "${sarDstDir}"/"$sarDestFile" 
 done
 
 #COMMENT
