@@ -16,9 +16,11 @@ help() {
 	cat <<-EOF
 
 	  $0 
-	    -s source-dir 
-	    -d dest-dir 
-	    -p pretty print Disk Device Names
+       -s source-dir 
+       -d dest-dir 
+       -p pretty print Disk Device Names
+       -n no disk metrics
+       -y dry run
 	
 	  Note: only use -p if running on the same system where sar files are generated
 	  otherwise the names printed will be incorrect         	
@@ -43,6 +45,8 @@ fi
 
 diskPrettyPrintOpts=' -j ID -p '
 sarDiskOpts=''
+getDiskMetrics='Y'
+dryRun='N'
 
 # Determine the OS family, if possible
 if [ -r /etc/os-release ]
@@ -62,12 +66,14 @@ sarDstDir="sar-csv"
 csvConvertCmd="sed -e 's/;/,/g'"
 
 
-while getopts s:d:hp arg
+while getopts s:d:hpny arg
 do
 	case $arg in
 		d) sarDstDir=$OPTARG;;
 		s) sarSrcDir=$OPTARG;;
 		p) sarDiskOpts="$diskPrettyPrintOpts";;
+		n) getDiskMetrics='N';;
+		y) dryRun='Y';;
 		h) help; exit 0;;
 		*) help; exit 1;;
 	esac
@@ -121,7 +127,10 @@ declare -A sarDestOptions
 
 #sarDestOptions=( "-d ${sarDiskOpts} " '-b' '-q' '-u ALL' '-r' '-R' '-B' '-S' '-W' '-n DEV' '-n EDEV' '-n NFS' '-n NFSD' '-n SOCK' '-n IP' '-n EIP' '-n ICMP' '-n EICMP' '-n TCP' '-n ETCP' '-n UDP' '-v' '-w')
 
-sarDestOptions["-d ${sarDiskOpts} "]='sar-disk.csv'
+[ "$getDiskMetrics" == 'Y' ] && {
+	sarDestOptions["-d ${sarDiskOpts} "]='sar-disk.csv'
+}
+
 sarDestOptions['-b']='sar-io.csv'
 sarDestOptions['-q']='sar-load.csv'
 sarDestOptions['-u ALL']='sar-cpu.csv'
@@ -157,7 +166,11 @@ do
 	#echo "saropt: $saropt"
 	#echo "file: ${sarDestOptions["$saropt"]}"
 
-	CMD="sadf -d -- $saropt  | head -1 | $csvConvertCmd | sed -nEe 's/^# //' -e 's/,/\",\"/g' -e 's/(.*)/\"\1\"/p' > ${sarDstDir}/${sarDestOptions["$saropt"]} "
+	CMD="sadf -d -- $saropt  | head -1 | $csvConvertCmd | sed -nEe 's/^# //' -e 's/,/\",\"/g' -e 's/(.*)/\"\1\"/p' "
+
+	if [ "$dryRun" == 'N' ]; then
+		CMD="$CMD  > ${sarDstDir}/${sarDestOptions["$saropt"]} "
+	fi
 	echo CMD: "$CMD"
 
 	#set -o pipefail
@@ -169,7 +182,8 @@ do
 	# the following occurs due to 'set -o pipefail'
 	# 141 == SIGPIPE - SIGPIPE is set by 'head -1' closing the reader while the writer (sadf) is still active
 	# https://stackoverflow.com/questions/19120263/why-exit-code-141-with-grep-q
-	if [[ "$rc" -ne 141 ]]; then
+	# This does not always seem to be the case, so, checking for exit 0 as well
+	if [ "$rc" -ne 141 -a "$rc" -ne 0 ]; then
 		echo
 		echo "  !!! This Metric Not Supported !!!"
 		echo '  removing ' "${sarDstDir}"/${sarDestOptions["$saropt"]} ' from output'
@@ -206,12 +220,16 @@ do
 		do
 			CMD="sadf -d -- $saropt $sadfFile | tail -n +3  | sed -Ee '/^# /d' | $csvConvertCmd  >> ${sarDstDir}/${sarDestOptions["$saropt"]} "
 			echo CMD: "$CMD"
-			if eval "$CMD"; then
-				echo "#############################################"
-				echo "## CMD Failed"
-				echo "## $CMD"
-				echo "#############################################"
 
+			if [ "$dryRun" == 'N' ]; then
+				eval $CMD
+				if [[ $? -ne 0 ]]; then
+					echo "#############################################
+					echo "## CMD Failed"
+					echo "## $CMD"
+					echo "#############################################
+	
+				fi
 			fi
 		done
 

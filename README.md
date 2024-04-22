@@ -1,4 +1,4 @@
-Another Shell Processor
+Another SAR Processor
 =======================
 
 asp.sh is a shell script that creates CSV files from sar metrics
@@ -207,6 +207,28 @@ working on 'sar -W sar-csv/sar-swap-stats.csv'
 ```
 
 
+## Auxilary scripts
+
+Following a some useful helper scripts.
+
+If the `-p` option of `asp.sh` is used to match disk devices to logical names, these scripts wlil not be useful.
+
+The `-p` option requires that `asp.sh` be run on the originating server.
+
+### get-sar.sh
+
+Copies sar files from all RAC nodes
+
+### asp-all.sh
+
+Processes the CSV files for all sar files collected.
+
+## sar-map-disks.sh
+
+Creates a sed command file that can be used to replace the devmajor-minor values in the sar output with ASMLib disk names
+
+It is assumed that disks are partitioned.  If not, the script will require some adjustment
+
 ## Charting
 
 The charting tools are found at [dynachart](https://github.com/jkstill/csv-tools/tree/master/dynachart)
@@ -269,5 +291,113 @@ total 27828
 -rwxrwxrwx+ 1 jkstill dba   194113 Jan  9 15:05 sar-swap-rate.xlsx
 
 ```
+
+## More Charting and Data Tools
+
+When faced with large numbers of sar files from multiple servers, it is useful to employ some automation to the data.
+
+For instance, you may have collected sar data from multiple clustered systems.
+
+```text
+
+Directory structure of sar CSV files:
+
+cluster01/
+    node01/csv
+    node02/csv
+    node03/csv
+    node04/csv
+cluster02/
+    node01/csv
+    node02/csv
+    node03/csv
+    node04/csv
+...
+```
+
+By using some of the tools from the [csv-tools](https://github.com/jkstill/csv-tools) repo, the following can be done:
+
+* create Excel files with charts via `dynachart.pl`
+* remove outliers from CSV data
+* remove  extreme peaks from CSV data (for better charting of normalized data)
+  * create Excel files with charts of the cleansed data
+* detect metrics that rise over time
+
+## Cleansing and Charting
+
+The `sar-chart-driver.sh` script calls the following scripts, and runs each on all CSV files in the directory structure
+
+* sar-cleaned.sh
+* sar-chart.sh
+* sar-chart-cleaned.sh
+
+The result will be three new directories per server:
+
+```text
+cluster01/
+    node01/csv
+    node01/csv-cleaned
+    node01/xlsx-cleaned
+...
+```
+
+## Rising Rate Detector
+
+These scripts are from [csv-tools](https://github.com/jkstill/csv-tools) 
+
+The following files are required from [csv-tools](https://github.com/jkstill/csv-tools)
+
+* csvhdr.sh
+* flatten.py
+* outlier-remove.py
+* rising-rate-detector.py
+* rising-rate-detector.sh
+
+The shell script `rising-rate-detector.sh` calls `rising-rate-detector.py` for each of the CSV files.
+
+Any metric that is found to be rising over time will be displayed.
+
+Following is a real example, though the server names have been changed:
+
+```text
+$ ./rising-rate-detector.sh | tee rising-rate-detector.log
+
+cluster: rac10
+   ============================================
+   server: rac10/rac10-p001
+cli: rising-rate-detector.py 144 CPU %usr %nice %sys %iowait %steal %irq %soft %guest %idle < rac10/rac10-p001/csv/sar-cpu.csv
+%idle is rising
+ avgFirstPeriod: 0.026952
+avgMiddlePeriod: 0.060606
+  avgLastPeriod: 0.060800
+     %increased:   126
+   ============================================
+   server: rac10/rac10-p001
+cli: rising-rate-detector.py 144 frmpg/s bufpg/s campg/s < rac10/rac10-p001/csv/sar-mem.csv
+frmpg/s is rising
+ avgFirstPeriod: 0.004468
+avgMiddlePeriod: 0.006022
+  avgLastPeriod: 0.012821
+     %increased:   187
+   ============================================
+   server: rac10/rac10-p002
+cli: rising-rate-detector.py 144 kbswpfree kbswpused %swpused kbswpcad %swpcad < rac10/rac10-p002/csv/sar-swap-utilization.csv
+kbswpused is rising
+ avgFirstPeriod: 0.559878
+avgMiddlePeriod: 0.893454
+  avgLastPeriod: 0.895979
+     %increased:    60
+%swpused is rising
+ avgFirstPeriod: 0.013840
+avgMiddlePeriod: 0.166181
+  avgLastPeriod: 0.413510
+     %increased:  2888
+```
+
+The avg values shown do not represent the values from the sar data. Those are just values calculated so periods may be compared.
+
+```
+
+
 
 
